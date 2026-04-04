@@ -6,7 +6,7 @@
  * custom form fields dynamically update when the topic changes.
  *
  * @author  ChesnoTech
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 require_once 'config.php';
@@ -46,7 +46,10 @@ class TopicFormRefreshPlugin extends Plugin {
             url('^/topic-form-refresh/', patterns(
                 $dir . 'class.TopicFormRefreshAjax.php:TopicFormRefreshAjax',
                 url_get('^assets/js$', 'serveJs'),
-                url_get('^topic-forms/(?P<topic_id>\d+)$', 'getTopicForms')
+                url_get('^assets/admin-js$', 'serveAdminJs'),
+                url_get('^topic-forms/(?P<topic_id>\d+)$', 'getTopicForms'),
+                url_get('^check-update$', 'checkUpdate'),
+                url_post('^do-update$', 'doUpdate')
             ))
         );
     }
@@ -59,19 +62,29 @@ class TopicFormRefreshPlugin extends Plugin {
                 || strpos($buffer, '</body>') === false)
             return $buffer;
 
-        // Only inject on pages that have the dynamic-form target
-        if (strpos($buffer, 'id="dynamic-form"') === false)
-            return $buffer;
-
         $base = ROOT_PATH . 'scp/ajax.php/topic-form-refresh/assets';
-        $jsFile = dirname(__FILE__) . '/assets/topic-form-refresh.js';
-        $v = @filemtime($jsFile) ?: time();
 
-        $js = sprintf(
-            '<script type="text/javascript" src="%s/js?v=%s"></script>',
-            $base, $v);
+        // Inject admin update UI on this plugin's settings page
+        if (strpos($buffer, 'Topic Form Refresh') !== false
+                && strpos($buffer, 'Plugin Information') !== false) {
+            $jsFile = dirname(__FILE__) . '/assets/topic-form-refresh-admin.js';
+            $v = @filemtime($jsFile) ?: time();
+            $js = sprintf(
+                '<script type="text/javascript" src="%s/admin-js?v=%s"></script>',
+                $base, $v);
+            $buffer = str_replace('</body>', $js . "\n</body>", $buffer);
+        }
 
-        $buffer = str_replace('</body>', $js . "\n</body>", $buffer);
+        // Inject form refresh JS on new ticket page
+        if (strpos($buffer, 'id="dynamic-form"') !== false) {
+            $jsFile = dirname(__FILE__) . '/assets/topic-form-refresh.js';
+            $v = @filemtime($jsFile) ?: time();
+            $js = sprintf(
+                '<script type="text/javascript" src="%s/js?v=%s"></script>',
+                $base, $v);
+            $buffer = str_replace('</body>', $js . "\n</body>", $buffer);
+        }
+
         return $buffer;
     }
 }
