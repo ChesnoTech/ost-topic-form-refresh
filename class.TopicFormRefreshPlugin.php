@@ -16,6 +16,10 @@ class TopicFormRefreshPlugin extends Plugin {
 
     static private $bootstrapped = false;
 
+    function isMultiInstance() {
+        return false;
+    }
+
     function bootstrap() {
         self::bootstrapStatic();
     }
