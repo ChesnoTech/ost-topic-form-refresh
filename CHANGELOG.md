@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-04-08
+
+### Fixed
+- Plugin ID changed from `osticket:topic-form-refresh` to `chesnotech:topic-form-refresh` — the `osticket:` namespace is reserved for official plugins; third-party plugins must use their own vendor prefix
+
 ## [1.2.0] - 2026-04-08
 
 ### Added
