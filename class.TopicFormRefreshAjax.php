@@ -62,16 +62,13 @@ class TopicFormRefreshAjax extends AjaxController {
         $pluginInfo = include(dirname(__FILE__) . '/plugin.php');
         $current = $pluginInfo['version'];
 
-        $release = self::getLatestRelease();
-        if (isset($release['error']))
-            return $this->encode(array('error' => $release['error']));
+        $releases = self::getAllReleases();
+        if (isset($releases['error']))
+            return $this->encode(array('error' => $releases['error']));
 
-        return $this->encode(array(
-            'current'          => $current,
-            'latest'           => $release['version'],
-            'update_available' => version_compare($release['version'], $current, '>'),
-            'release_notes'    => $release['body'],
-        ));
+        $updates = self::categorizeUpdates($releases, $current);
+        $updates['current'] = $current;
+        return $this->encode($updates);
     }
 
     function doUpdate() {
@@ -81,8 +78,15 @@ class TopicFormRefreshAjax extends AjaxController {
 
         $pluginDir  = dirname(__FILE__);
         $pluginInfo = include($pluginDir . '/plugin.php');
+        $targetTag  = isset($_POST['target_tag']) ? trim($_POST['target_tag']) : '';
 
-        $release = self::getLatestRelease();
+        if (!$targetTag)
+            return $this->encode(array(
+                'success' => false,
+                'error'   => 'No target version specified'));
+
+        // Fetch the specific release by tag
+        $release = self::getReleaseByTag($targetTag);
         if (isset($release['error']))
             return $this->encode(array(
                 'success' => false, 'error' => $release['error']));
@@ -157,9 +161,12 @@ class TopicFormRefreshAjax extends AjaxController {
 
     /* ── GitHub helpers ──────────────────────────── */
 
-    private static function getLatestRelease() {
-        $url  = 'https://api.github.com/repos/'
-              . self::GITHUB_REPO . '/releases/latest';
+    /**
+     * Fetch all published (non-draft, non-prerelease) releases from GitHub.
+     */
+    private static function getAllReleases() {
+        $url = 'https://api.github.com/repos/'
+             . self::GITHUB_REPO . '/releases?per_page=50';
         $body = self::curlGet($url, false);
 
         if (!$body)
@@ -167,14 +174,112 @@ class TopicFormRefreshAjax extends AjaxController {
                 'Failed to reach GitHub — check server connectivity');
 
         $data = json_decode($body, true);
-        if (!$data || empty($data['tag_name']))
+        if (!is_array($data))
+            return array('error' =>
+                'Invalid response from GitHub');
+
+        if (empty($data))
             return array('error' =>
                 'No releases found — create a GitHub release first');
 
+        $releases = array();
+        foreach ($data as $rel) {
+            if (!empty($rel['draft']) || !empty($rel['prerelease']))
+                continue;
+            if (empty($rel['tag_name']))
+                continue;
+
+            $releases[] = array(
+                'version'     => ltrim($rel['tag_name'], 'v'),
+                'tag'         => $rel['tag_name'],
+                'body'        => isset($rel['body']) ? $rel['body'] : '',
+                'zipball_url' => $rel['zipball_url'],
+                'published'   => isset($rel['published_at'])
+                                   ? $rel['published_at'] : '',
+            );
+        }
+
+        if (empty($releases))
+            return array('error' =>
+                'No published releases found');
+
+        return $releases;
+    }
+
+    /**
+     * Fetch a single release by its git tag.
+     */
+    private static function getReleaseByTag($tag) {
+        $url = 'https://api.github.com/repos/'
+             . self::GITHUB_REPO . '/releases/tags/' . urlencode($tag);
+        $body = self::curlGet($url, false);
+
+        if (!$body)
+            return array('error' =>
+                'Failed to reach GitHub — release not found');
+
+        $data = json_decode($body, true);
+        if (!$data || empty($data['tag_name']))
+            return array('error' =>
+                'Release not found: ' . $tag);
+
         return array(
             'version'     => ltrim($data['tag_name'], 'v'),
+            'tag'         => $data['tag_name'],
             'body'        => isset($data['body']) ? $data['body'] : '',
             'zipball_url' => $data['zipball_url'],
+        );
+    }
+
+    /**
+     * Split available releases into minor (same major) and major (new major)
+     * update paths relative to the current installed version.
+     *
+     * Returns: { minor_update: {...}|null, major_update: {...}|null }
+     */
+    private static function categorizeUpdates($releases, $currentVersion) {
+        $curParts   = explode('.', $currentVersion);
+        $curMajor   = (int)$curParts[0];
+
+        $minorUpdate = null;   // latest within same major version
+        $majorUpdate = null;   // latest with a higher major version
+        $minorAll    = array(); // all available minor/patch versions
+        $majorAll    = array(); // all available major versions
+
+        foreach ($releases as $rel) {
+            $ver = $rel['version'];
+            if (!version_compare($ver, $currentVersion, '>'))
+                continue;
+
+            $parts = explode('.', $ver);
+            $major = (int)$parts[0];
+
+            if ($major === $curMajor) {
+                $minorAll[] = $rel;
+                if (!$minorUpdate
+                        || version_compare($ver, $minorUpdate['version'], '>'))
+                    $minorUpdate = $rel;
+            } else {
+                $majorAll[] = $rel;
+                if (!$majorUpdate
+                        || version_compare($ver, $majorUpdate['version'], '>'))
+                    $majorUpdate = $rel;
+            }
+        }
+
+        // Sort version lists descending for display
+        usort($minorAll, function($a, $b) {
+            return version_compare($b['version'], $a['version']);
+        });
+        usort($majorAll, function($a, $b) {
+            return version_compare($b['version'], $a['version']);
+        });
+
+        return array(
+            'minor_update'    => $minorUpdate,
+            'minor_available' => $minorAll,
+            'major_update'    => $majorUpdate,
+            'major_available' => $majorAll,
         );
     }
 

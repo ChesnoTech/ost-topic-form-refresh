@@ -1,7 +1,7 @@
 <?php
 return array(
     'id'          => 'osticket:topic-form-refresh',
-    'version'     => '1.1.0',
+    'version'     => '1.2.0',
     'name'        => 'Topic Form Refresh',
     'author'      => 'ChesnoTech',
     'description' => 'Dynamically refreshes custom form fields when the help topic changes during new ticket creation. Replaces the default inline handler with a robust AJAX handler that reinitializes widgets and preserves entered data.',
